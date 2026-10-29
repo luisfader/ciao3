@@ -3,7 +3,7 @@
 Sitio de ejercicios interactivos, al estilo Duolingo, basado en el libro **«Ciao, amore! 3 — Corso di italiano per stranieri»** de Roberto Fader (nivel B1).
 
 - **10 unidades, 50 lecciones y 10 pruebas finales** (~690 ejercicios) con los diálogos, textos y la gramática del libro.
-- Cada unidad se **desbloquea al aprobar la prueba final** de la unidad anterior; dentro de cada unidad las lecciones se abren en orden.
+- Por ahora **solo la Unidad 1 está abierta**; las demás quedan bloqueadas aunque se apruebe la prueba final (al terminarla aparece «Sei bravissimo! Aspetta le istruzioni del tuo professore»). Para abrir más unidades, cambiar `MAX_OPEN_UNIT` en `js/app.js`. Dentro de cada unidad las lecciones se abren en orden.
 - Tipos de ejercicio: lectura de diálogos (con audio en italiano), opción múltiple, verdadero/falso, completar con banco de palabras o escribiendo, transformar frases, ordenar palabras, dictado y emparejar.
 - 5 corazones por lección (los errores vuelven al final), 3 corazones en la prueba final, XP, racha diaria y objetivo del día.
 - «Note di grammatica» de cada unidad, siempre consultables desde el mapa.

@@ -100,7 +100,10 @@
 
   function lessonKey(u, i) { return u + "-" + i; }
   function unitPassed(n) { return !!(state.units[n] && state.units[n].passed); }
-  function unitUnlocked(n) { return state.teacher || n === UNITS[0].n || unitPassed(n - 1); }
+  // Unità aperte agli studenti: le altre restano bloccate finché il professore non le apre.
+  var MAX_OPEN_UNIT = 1;
+  var WAIT_MSG = "Aspetta le istruzioni del tuo professore per continuare.";
+  function unitUnlocked(n) { return state.teacher || (n <= MAX_OPEN_UNIT && (n === UNITS[0].n || unitPassed(n - 1))); }
   function lessonDone(u, i) { return !!(state.lessons[lessonKey(u, i)] && state.lessons[lessonKey(u, i)].done); }
   function lessonUnlocked(unit, i) {
     if (!unitUnlocked(unit.n)) return false;
@@ -115,8 +118,13 @@
   }
   function getUnit(n) { for (var i = 0; i < UNITS.length; i++) if (UNITS[i].n === n) return UNITS[i]; return null; }
   function currentUnit() {
-    for (var i = 0; i < UNITS.length; i++) if (!unitPassed(UNITS[i].n)) return UNITS[i];
-    return UNITS[UNITS.length - 1];
+    var last = UNITS[0];
+    for (var i = 0; i < UNITS.length; i++) {
+      if (!unitUnlocked(UNITS[i].n)) break;
+      last = UNITS[i];
+      if (!unitPassed(UNITS[i].n)) return UNITS[i];
+    }
+    return last;
   }
 
   /* ---------------- Utilità ---------------- */
@@ -349,7 +357,7 @@
       '<div class="hero-art" aria-hidden="true"><img src="assets/img/u02-cover.jpg" alt=""><img src="assets/img/u08-cover.jpg" alt=""><img src="assets/img/u10-cover.jpg" alt=""></div>' +
       '<div class="hero-kicker">Corso di italiano per stranieri · Livello B1</div>' +
       '<h1>Ciao, <span>amore!</span> 3</h1>' +
-      '<p>Dieci unità, dieci storie: Venezia, Firenze, gli Etruschi, i romanzi di Roberto Fader e un po’ di gelosia. Completa le lezioni e supera la prova finale per aprire l’unità successiva.</p>' +
+      '<p>Dieci unità, dieci storie: Venezia, Firenze, gli Etruschi, i romanzi di Roberto Fader e un po’ di gelosia. Completa le lezioni e supera la prova finale: il tuo professore ti dirà quando aprire l’unità successiva.</p>' +
       '</section>';
 
     UNITS.forEach(function (unit) {
@@ -361,7 +369,7 @@
         '<div class="unit-title">' + esc(unit.title) + '</div>' +
         '<div class="unit-topics">' + esc(unit.topics) + '</div>' +
         '<div class="unit-actions"><button class="chip-btn" data-notes="' + unit.n + '">' + I.notes + ' Note di grammatica</button></div>' +
-        (unlocked ? "" : '<div class="unit-lockmsg">' + I.lock + ' Supera la prova finale dell’Unità ' + (unit.n - 1) + ' per sbloccarla</div>') +
+        (unlocked ? "" : '<div class="unit-lockmsg">' + I.lock + ' Unità bloccata · ' + WAIT_MSG + '</div>') +
         '</div>';
       html += '<div class="path">' +
         '<figure class="polaroid p1"><img src="' + unitImage(unit, "a") + '" alt="" loading="lazy" decoding="async"></figure>' +
@@ -415,7 +423,7 @@
       b.addEventListener("click", function () {
         var p = b.getAttribute("data-lesson").split(":"), unit = getUnit(+p[0]), i = +p[1];
         if (!lessonUnlocked(unit, i)) {
-          toast(unitUnlocked(unit.n) ? "Completa prima la lezione precedente." : "Unità bloccata: supera la prova finale dell’Unità " + (unit.n - 1) + ".");
+          toast(unitUnlocked(unit.n) ? "Completa prima la lezione precedente." : "Unità bloccata. " + WAIT_MSG);
           return;
         }
         location.hash = "#/u/" + unit.n + "/l/" + i;
@@ -651,7 +659,7 @@
     var secs = Math.round((Date.now() - S.start) / 1000);
     var time = Math.floor(secs / 60) + ":" + pad(secs % 60);
     var acc = S.graded ? Math.round((S.firstTry / S.graded) * 100) : 100;
-    var xp = 0, unlockedNext = null;
+    var xp = 0, unlockedNext = null, waitNext = false, firstPass = false;
     if (ok) {
       sndWin();
       if (S.mode === "lesson") {
@@ -659,10 +667,12 @@
         xp = 10 + S.hearts + (first ? 5 : 0);
         state.lessons[k] = { done: true, best: Math.max(acc, (state.lessons[k] && state.lessons[k].best) || 0) };
       } else {
-        var firstPass = !unitPassed(unit.n);
+        firstPass = !unitPassed(unit.n);
         xp = 25 + S.hearts * 5;
         state.units[unit.n] = { passed: true, best: Math.max(acc, (state.units[unit.n] && state.units[unit.n].best) || 0) };
-        if (firstPass) unlockedNext = getUnit(unit.n + 1);
+        var nextU = getUnit(unit.n + 1);
+        if (nextU && !unitUnlocked(nextU.n)) waitNext = true;
+        else if (firstPass) unlockedNext = nextU;
       }
       addXP(xp);
       confetti();
@@ -672,7 +682,8 @@
     var body = $("#body");
     $(".progress-fill").style.width = ok ? "100%" : $(".progress-fill").style.width;
     var title, sub;
-    if (ok && S.mode === "test") { title = "Unità " + unit.n + " superata!"; sub = unlockedNext ? "Si apre l’Unità " + unlockedNext.n + ": «" + unlockedNext.title + "»." : (getUnit(unit.n + 1) ? "Hai già completato questa unità: ottimo ripasso!" : "Hai completato tutto il corso B1. Complimenti!"); }
+    if (ok && S.mode === "test" && waitNext) { title = "Sei bravissimo!"; sub = "Hai superato l’Unità " + unit.n + ". " + WAIT_MSG; }
+    else if (ok && S.mode === "test") { title = "Unità " + unit.n + " superata!"; sub = unlockedNext ? "Si apre l’Unità " + unlockedNext.n + ": «" + unlockedNext.title + "»." : (getUnit(unit.n + 1) ? "Hai già completato questa unità: ottimo ripasso!" : "Hai completato tutto il corso B1. Complimenti!"); }
     else if (ok) { title = "Lezione completata!"; sub = S.title; }
     else { title = "Peccato…"; sub = S.mode === "test" ? "Hai esaurito i cuori. Ripassa le lezioni e riprova la prova finale." : "Hai esaurito i cuori. Riprova: ogni errore insegna qualcosa!"; }
     var rpic = lessonImage(unit, S.idx);
@@ -693,6 +704,7 @@
       btn.className = "btn gold"; btn.textContent = "Continua";
       btn.onclick = function () {
         if (unlockedNext) pendingUnlock = { done: unit, next: unlockedNext };
+        else if (waitNext && firstPass) pendingUnlock = { done: unit, next: null };
         location.hash = "#/";
       };
     } else {
@@ -709,6 +721,15 @@
   function celebrateUnlock(done, nextU) {
     var el = document.createElement("div");
     el.className = "celebrate";
+    if (!nextU) {
+      el.innerHTML = '<div class="card"><div class="ornament">' + ORNAMENT + '</div><h2>Sei bravissimo!</h2>' +
+        '<p>Hai completato l’<b>Unità ' + done.n + '</b>.<br>' + WAIT_MSG + '</p>' +
+        '<button class="btn gold">Va bene!</button></div>';
+      document.body.appendChild(el);
+      confetti();
+      $("button", el).addEventListener("click", function () { el.remove(); });
+      return;
+    }
     el.innerHTML = '<div class="card"><div class="ornament">' + ORNAMENT + '</div><h2>Complimenti!</h2>' +
       '<p>Hai completato l’<b>Unità ' + done.n + '</b>.<br>Adesso si apre l’<b>Unità ' + nextU.n + '</b>:</p>' +
       '<p style="font-family:var(--serif);font-size:1.6rem;font-weight:700;color:var(--rosso);margin:4px 0 14px">«' + esc(nextU.title) + '»</p>' +
@@ -1141,7 +1162,7 @@
     window.scrollTo(0, 0);
     var pu = pendingUnlock; pendingUnlock = null;
     setTimeout(function () {
-      if (pu) { scrollToCurrent(pu.next.n); celebrateUnlock(pu.done, pu.next); }
+      if (pu) { scrollToCurrent(pu.next ? pu.next.n : pu.done.n); celebrateUnlock(pu.done, pu.next); }
       else scrollToCurrent(null, true);
     }, 80);
   }
