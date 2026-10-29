@@ -168,18 +168,24 @@
      femminile nei dialoghi e legge frase per frase: così Chrome non si blocca
      sui testi lunghi (bug dei 15 secondi) e l’intonazione è più naturale. */
   var synth = window.speechSynthesis || null;
-  var MALE_NAMES = /cosimo|luca|diego|giorgio|giuseppe|benigno|calogero|gianni|paolo|marco|roberto|lorenzo|alessandro|male|uomo|maschile/i;
-  var FEMALE_NAMES = /elsa|isabella|alice|federica|paola|emma|chiara|giovanna|fiamma|imelda|irma|palmira|pierina|google italiano|female|donna|femminile/i;
+  // Voci italiane note, per sistema: Windows/Edge, macOS/iOS, Android/ChromeOS, Google
+  var MALE_NAMES = /\b(cosimo|diego|giuseppe|benigno|calogero|gianni|lisandro|rinaldo|luca|eddy|reed|rocko|grandpa|nonno|giorgio|marcello|paolo|alessandro|roberto|carlo|fabio|federico|male|uomo|maschile)\b|it-it-x-it[cd]|itc-|itd-|#male/i;
+  var FEMALE_NAMES = /\b(elsa|isabella|alice|federica|paola|emma|chiara|kiara|giovanna|fiamma|imelda|irma|palmira|pierina|flo|sandy|shelley|grandma|nonna|silvia|francesca|female|donna|femminile)\b|google italiano|it-it-x-it[ab]|ita-|itb-|#female/i;
   var MALE_CHARS = /^(Roberto|Robert|Luis|Lorenzo|Alessio|Franco|Marco|Cameriere|Intervistatore|McGregor|Impiegato|Giuseppe|Antonio|Leonardo|Aldo|Paolo|Gianni|Giovanni)$/;
-  var voices = { female: null, male: null, all: [] };
+  var voices = { female: null, male: null, all: [], realMale: false };
+  function voiceGender(v) {
+    var n = v.name + " " + (v.voiceURI || "");
+    if (MALE_NAMES.test(n) && !FEMALE_NAMES.test(v.name)) return "m";
+    if (FEMALE_NAMES.test(n)) return "f";
+    return "?";
+  }
   function voiceScore(v) {
     var n = v.name, sc = 0;
     if (/^it[-_]IT/i.test(v.lang)) sc += 20; else if (/^it/i.test(v.lang)) sc += 10;
     if (/google/i.test(n)) sc += 60;
     if (/natural|neural|online/i.test(n)) sc += 70;
     if (/premium|enhanced|siri/i.test(n)) sc += 55;
-    if (/compact|espeak/i.test(n)) sc -= 40;
-    if (state.voice && n === state.voice) sc += 1000;
+    if (/compact|espeak|grandpa|grandma|rocko|reed|eddy|flo|sandy|shelley/i.test(n)) sc -= 40;
     return sc;
   }
   function pickVoice() {
@@ -187,12 +193,18 @@
     var vs = (synth.getVoices() || []).filter(function (v) { return /^it/i.test(v.lang); });
     vs.sort(function (a, b) { return voiceScore(b) - voiceScore(a); });
     voices.all = vs;
-    var best = vs[0] || null;
-    var male = vs.filter(function (v) { return MALE_NAMES.test(v.name) && !FEMALE_NAMES.test(v.name); })[0] || null;
-    var female = vs.filter(function (v) { return !MALE_NAMES.test(v.name) || FEMALE_NAMES.test(v.name); })[0] || null;
-    if (best && MALE_NAMES.test(best.name) && !FEMALE_NAMES.test(best.name)) { male = best; female = female || best; }
-    else { female = best; }
-    voices.female = female; voices.male = male;
+    var byName = function (n) { return vs.filter(function (v) { return v.name === n; })[0] || null; };
+    var males = vs.filter(function (v) { return voiceGender(v) === "m"; });
+    var females = vs.filter(function (v) { return voiceGender(v) !== "m"; });
+    voices.male = byName(state.voiceM) || males[0] || null;
+    voices.female = byName(state.voiceF) || females[0] || null;
+    voices.realMale = !!voices.male;
+    if (!voices.male) {
+      // Nessuna voce maschile installata: si usa una voce femminile molto più grave.
+      // Le voci locali rispettano meglio il tono di quelle online di Google.
+      voices.male = vs.filter(function (v) { return v.localService && v !== voices.female; })[0] ||
+                    vs.filter(function (v) { return v.localService; })[0] || voices.female;
+    }
   }
   if (synth) { pickVoice(); if ("onvoiceschanged" in synth) synth.addEventListener("voiceschanged", pickVoice); }
   function canSpeak() { return !!synth; }
@@ -214,11 +226,11 @@
     var u = new SpeechSynthesisUtterance(item.text.replace(/[«»“”"]/g, "").replace(/\s—\s/g, ", "));
     u.lang = "it-IT";
     var male = item.male;
-    var v = male ? (voices.male || voices.female) : (voices.female || voices.male);
+    var v = male ? voices.male : voices.female;
     if (v) { u.voice = v; u.lang = v.lang; }
     u.rate = item.rate || 0.94;
-    // se c’è una sola voce, una lieve differenza di tono distingue uomo e donna
-    u.pitch = male && (!voices.male || voices.male === voices.female) ? 0.82 : 1;
+    if (male && !voices.realMale) { u.pitch = 0.45; u.rate = (item.rate || 0.94) * 0.95; }
+    else if (!male && voices.female && voiceGender(voices.female) === "m") u.pitch = 1.35;
     return u;
   }
   function playQueue(token) {
@@ -258,7 +270,10 @@
   function speaking() { return !!synth && (synth.speaking || speechQueue.length > 0); }
   function speakerLine(line) {
     var m = line.match(/^([A-ZÀ-Ú][A-Za-zÀ-ú' ]{1,26}):\s+(.*)$/);
-    return m && CHAR_COLORS[m[1]] ? m : null;
+    if (!m) return null;
+    if (CHAR_COLORS[m[1]]) return m;
+    var first = m[1].split(" ")[0];
+    return CHAR_COLORS[first] && first !== "La" ? [m[0], first, m[2]] : null;
   }
   function stripSpeakers(text) {
     return text.split("\n").map(function (l) { var m = speakerLine(l.trim()); return m ? m[2] : l; }).join(" ");
@@ -445,24 +460,38 @@
     openModal(unit, "Unità " + unit.n + " · Note importanti", '<div class="notes">' + unit.notes + '</div>');
   }
 
+  function voiceSelect(id, label, list, cur) {
+    return '<p><label>' + label + '<br><select id="' + id + '" class="voice-select">' +
+      (cur ? "" : '<option value="" selected>— nessuna voce adatta —</option>') +
+      list.map(function (v) {
+        var g = voiceGender(v);
+        return '<option value="' + esc(v.name) + '"' + (cur === v ? " selected" : "") + '>' + esc(v.name.replace(/^Microsoft |^Google /, "")) +
+          (g === "m" ? " · uomo" : g === "f" ? " · donna" : "") + (v.localService ? "" : " · online") + '</option>';
+      }).join("") + '</select></label></p>';
+  }
   function openSettings() {
     var m = openModal(null, "Impostazioni",
       '<div class="notes">' +
       '<h3>Audio</h3><p><label><input type="checkbox" id="opt-sound"' + (state.sound ? " checked" : "") + '> Effetti sonori</label></p>' +
-      (canSpeak() && voices.all.length ? '<p><label>Voce italiana<br><select id="opt-voice" class="voice-select">' +
-        voices.all.map(function (v) { return '<option value="' + esc(v.name) + '"' + (voices.female === v || state.voice === v.name ? " selected" : "") + '>' + esc(v.name.replace(/^Microsoft |^Google /, "")) + (v.localService ? "" : " · online") + '</option>'; }).join("") +
-        '</select></label> <button class="speak-btn" id="opt-voice-try" type="button" style="margin:8px 0 0">' + I.speaker + 'Prova</button></p>' : "") +
-      '<p class="muted">La pronuncia usa le voci italiane del browser' + (canSpeak() ? (voices.all.length ? ". In Chrome la più naturale è «Google italiano»." : ": installa una voce italiana nel sistema per sentire la pronuncia.") : " (non disponibile su questo dispositivo).") + '</p>' +
+      (canSpeak() && voices.all.length ? voiceSelect("opt-voice-f", "Voce delle donne", voices.all, voices.female) +
+        voiceSelect("opt-voice-m", "Voce degli uomini", voices.all, voices.realMale ? voices.male : null) +
+        '<p><button class="speak-btn" id="opt-voice-try" type="button">' + I.speaker + 'Prova le due voci</button></p>' +
+        (voices.realMale ? "" : '<p class="warn">Questo browser non ha una voce italiana maschile: per gli uomini si usa una voce femminile resa più grave. ' +
+          'Per una vera voce maschile: in <b>Microsoft Edge</b> ci sono «Diego» e «Giuseppe»; su <b>Windows</b> si installa la voce italiana «Cosimo» (Impostazioni → Ora e lingua → Voce); su <b>Mac/iPhone</b> la voce «Luca» (Impostazioni → Accessibilità → Contenuti letti). Poi riapri questa pagina.</p>') : "") +
+      '<p class="muted">' + (canSpeak() ? (voices.all.length ? "La pronuncia usa le voci italiane installate nel tuo dispositivo." : "Installa una voce italiana nel sistema per sentire la pronuncia.") : "La sintesi vocale non è disponibile su questo dispositivo.") + '</p>' +
       '<h3>Progressi</h3><p>XP totali: <b>' + state.xp + '</b> · Unità completate: <b>' + UNITS.filter(function (u) { return unitPassed(u.n); }).length + '</b></p>' +
       (state.teacher ? '<p class="warn">Modalità docente attiva: tutte le unità sono aperte. <button class="link-btn" id="opt-teacher-off">Disattiva</button></p>' : "") +
       '<p><button class="btn red" id="opt-reset">Azzera i progressi</button></p>' +
       '</div>');
     $("#opt-sound", m.el).addEventListener("change", function (e) { state.sound = e.target.checked; saveState(); });
-    var vsel = $("#opt-voice", m.el);
-    if (vsel) {
-      vsel.addEventListener("change", function () { state.voice = vsel.value; saveState(); pickVoice(); });
-      $("#opt-voice-try", m.el).addEventListener("click", function () { speak("Ciao, amore! Benvenuti al corso di italiano. Come state oggi?"); });
-    }
+    [["#opt-voice-f", "voiceF"], ["#opt-voice-m", "voiceM"]].forEach(function (o) {
+      var el = $(o[0], m.el); if (!el) return;
+      el.addEventListener("change", function () { state[o[1]] = el.value; saveState(); pickVoice(); });
+    });
+    var tryB = $("#opt-voice-try", m.el);
+    if (tryB) tryB.addEventListener("click", function () {
+      speakItems([{ text: "Ciao! Io sono Natalia. Benvenuti al corso di italiano." }, { text: "E io sono Roberto. Cominciamo?", male: true, pause: 300 }]);
+    });
     var off = $("#opt-teacher-off", m.el);
     if (off) off.addEventListener("click", function () { state.teacher = false; saveState(); m.close(); route(); });
     $("#opt-reset", m.el).addEventListener("click", function () {
@@ -720,6 +749,9 @@
         var dlg = b.getAttribute("data-dialog") && $all("[data-line]", root);
         var items;
         if (dlg && dlg.length) {
+          if (!voices.realMale && !window.__maleWarned && dlg.some(function (el) { return el.getAttribute("data-male") === "1"; })) {
+            window.__maleWarned = true; toast("Manca una voce maschile italiana: vedi ⚙️ Impostazioni");
+          }
           items = dlg.map(function (el) {
             return chunks(el.getAttribute("data-line")).map(function (c) {
               return { text: c, el: el, male: el.getAttribute("data-male") === "1", pause: 320 };
