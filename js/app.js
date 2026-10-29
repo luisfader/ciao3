@@ -40,6 +40,9 @@
   var LOGO = '<svg class="brand-logo" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#5c1520" stroke="#c9a34e" stroke-width="2.5"/><path d="M32 47 C18 37 15 30 15 25 a8.5 8.5 0 0 1 17-2 a8.5 8.5 0 0 1 17 2 c0 5-3 12-17 22z" fill="#f6efe2"/><path d="M32 41 C23 34 21 30 21 27 a5 5 0 0 1 11-1.5 a5 5 0 0 1 11 1.5 c0 3-2 7-11 14z" fill="#c9a34e"/></svg>';
   var SKYLINE = '<svg class="hero-skyline" viewBox="0 0 600 70" preserveAspectRatio="none" fill="#e8d39a"><path d="M0 70V52h30V40h8v-8h4v8h8v12h20V30l6-10 6 10v22h14V44h10v-6h3v6h10v8h18V24h3V12h2v12h3v28h22V42c0-6 10-6 10 0v10h16V36l12-8 12 8v16h18V46h6V20l3-6 3 6v26h6v6h20V40h4v-6h10v6h4v12h22V30h4l4-8 4 8h4v22h16V44c0-8 14-8 14 0v8h24V38h10V28h2v10h10v14h18V42h6v-4h6v4h6v10h24V34l10-12 10 12v18h20V44h12v8h18v18z"/><path d="M60 64c20-6 40-6 60 0M220 66c25-6 50-6 75 0M420 64c22-5 44-5 66 0" stroke="#e8d39a" stroke-width="2" fill="none"/></svg>';
   var UNIT_PATTERN = '<svg class="unit-pattern" viewBox="0 0 100 100" fill="none" stroke="#fff" stroke-width="2"><path d="M50 5c12 15 12 35 0 50-12-15-12-35 0-50zM50 55c12 15 12 30 0 40-12-10-12-25 0-40zM5 50c15-12 35-12 50 0-15 12-35 12-50 0zM55 50c15-12 30-12 40 0-10 12-25 12-40 0z"/><circle cx="50" cy="50" r="6"/></svg>';
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function unitImage(unit, key) { return "assets/img/u" + pad2(unit.n) + "-" + key + ".jpg"; }
+  function lessonImage(unit, idx) { return idx === "test" ? unitImage(unit, "test") : unitImage(unit, "abcde".charAt(idx) || "a"); }
   var ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
   var LESSON_ICONS = { chat: I.chat, book: I.book, pen: I.pen, column: I.column, mask: I.mask, star: I.star };
 
@@ -159,25 +162,100 @@
     setTimeout(function () { t.remove(); }, 2600);
   }
 
-  /* ---------------- Voce italiana ---------------- */
+  /* ---------------- Voce italiana ----------------
+     Sceglie la voce italiana migliore disponibile (Google italiano in Chrome,
+     voci «Natural» di Edge, voci Premium di Apple), usa una voce maschile e una
+     femminile nei dialoghi e legge frase per frase: così Chrome non si blocca
+     sui testi lunghi (bug dei 15 secondi) e l’intonazione è più naturale. */
   var synth = window.speechSynthesis || null;
-  var itVoice = null;
+  var MALE_NAMES = /cosimo|luca|diego|giorgio|giuseppe|benigno|calogero|gianni|paolo|marco|roberto|lorenzo|alessandro|male|uomo|maschile/i;
+  var FEMALE_NAMES = /elsa|isabella|alice|federica|paola|emma|chiara|giovanna|fiamma|imelda|irma|palmira|pierina|google italiano|female|donna|femminile/i;
+  var MALE_CHARS = /^(Roberto|Robert|Luis|Lorenzo|Alessio|Franco|Marco|Cameriere|Intervistatore|McGregor|Impiegato|Giuseppe|Antonio|Leonardo|Aldo|Paolo|Gianni|Giovanni)$/;
+  var voices = { female: null, male: null, all: [] };
+  function voiceScore(v) {
+    var n = v.name, sc = 0;
+    if (/^it[-_]IT/i.test(v.lang)) sc += 20; else if (/^it/i.test(v.lang)) sc += 10;
+    if (/google/i.test(n)) sc += 60;
+    if (/natural|neural|online/i.test(n)) sc += 70;
+    if (/premium|enhanced|siri/i.test(n)) sc += 55;
+    if (/compact|espeak/i.test(n)) sc -= 40;
+    if (state.voice && n === state.voice) sc += 1000;
+    return sc;
+  }
   function pickVoice() {
     if (!synth) return;
-    var vs = synth.getVoices() || [];
-    itVoice = vs.filter(function (v) { return /^it/i.test(v.lang); })
-      .sort(function (a, b) { return (/google|natural|premium|enhanced/i.test(b.name) ? 1 : 0) - (/google|natural|premium|enhanced/i.test(a.name) ? 1 : 0); })[0] || null;
+    var vs = (synth.getVoices() || []).filter(function (v) { return /^it/i.test(v.lang); });
+    vs.sort(function (a, b) { return voiceScore(b) - voiceScore(a); });
+    voices.all = vs;
+    var best = vs[0] || null;
+    var male = vs.filter(function (v) { return MALE_NAMES.test(v.name) && !FEMALE_NAMES.test(v.name); })[0] || null;
+    var female = vs.filter(function (v) { return !MALE_NAMES.test(v.name) || FEMALE_NAMES.test(v.name); })[0] || null;
+    if (best && MALE_NAMES.test(best.name) && !FEMALE_NAMES.test(best.name)) { male = best; female = female || best; }
+    else { female = best; }
+    voices.female = female; voices.male = male;
   }
-  if (synth) { pickVoice(); if ("onvoiceschanged" in synth) synth.onvoiceschanged = pickVoice; }
+  if (synth) { pickVoice(); if ("onvoiceschanged" in synth) synth.addEventListener("voiceschanged", pickVoice); }
   function canSpeak() { return !!synth; }
-  function speak(text, rate) {
-    if (!synth) return;
-    synth.cancel();
-    var u = new SpeechSynthesisUtterance(text);
-    u.lang = "it-IT"; u.rate = rate || 0.92;
-    if (itVoice) u.voice = itVoice;
+
+  // divide il testo in frasi brevi
+  function chunks(text) {
+    var out = [];
+    String(text).replace(/\s+/g, " ").trim().split(/(?<=[.!?…»])\s+(?=[«"A-ZÀ-Ú0-9—–-])/).forEach(function (seg) {
+      while (seg.length > 190) {
+        var cut = seg.lastIndexOf(", ", 190); if (cut < 60) cut = seg.lastIndexOf(" ", 190); if (cut < 1) cut = 190;
+        out.push(seg.slice(0, cut + 1)); seg = seg.slice(cut + 1).trim();
+      }
+      if (seg) out.push(seg);
+    });
+    return out;
+  }
+  var speechQueue = [], speechToken = 0, keepAlive = null, liveUtter = null, speechDone = null;
+  function makeUtter(item) {
+    var u = new SpeechSynthesisUtterance(item.text.replace(/[«»“”"]/g, "").replace(/\s—\s/g, ", "));
+    u.lang = "it-IT";
+    var male = item.male;
+    var v = male ? (voices.male || voices.female) : (voices.female || voices.male);
+    if (v) { u.voice = v; u.lang = v.lang; }
+    u.rate = item.rate || 0.94;
+    // se c’è una sola voce, una lieve differenza di tono distingue uomo e donna
+    u.pitch = male && (!voices.male || voices.male === voices.female) ? 0.82 : 1;
+    return u;
+  }
+  function playQueue(token) {
+    if (token !== speechToken) return;
+    var item = speechQueue.shift();
+    if (!item) { stopKeepAlive(); markSpeaking(null); var cb = speechDone; speechDone = null; if (cb) cb(); return; }
+    markSpeaking(item.el || null);
+    var u = makeUtter(item); liveUtter = u;
+    var next = function () { if (u._done) return; u._done = true; setTimeout(function () { playQueue(token); }, item.pause || 120); };
+    u.onend = next; u.onerror = next;
     synth.speak(u);
   }
+  function startKeepAlive() {
+    stopKeepAlive();
+    // Chrome interrompe le voci online dopo ~15 s: pausa/ripresa le tiene vive
+    keepAlive = setInterval(function () { if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); } }, 9000);
+  }
+  function stopKeepAlive() { if (keepAlive) clearInterval(keepAlive); keepAlive = null; }
+  function markSpeaking(el) {
+    $all(".speaking").forEach(function (x) { x.classList.remove("speaking"); });
+    $all(".reading.has-speech").forEach(function (x) { if (!el || !x.contains(el)) x.classList.remove("has-speech"); });
+    if (el && el.closest) { var rd = el.closest(".reading"); if (rd) rd.classList.add("has-speech"); }
+    if (el) { el.classList.add("speaking"); if (el.scrollIntoView && el.getBoundingClientRect().bottom > window.innerHeight - 110) el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  }
+  function speakItems(items, done) {
+    if (!synth) return;
+    if (!voices.all.length) pickVoice();
+    stopSpeech();
+    var token = ++speechToken;
+    speechQueue = items; speechDone = done || null;
+    startKeepAlive();
+    setTimeout(function () { playQueue(token); }, 60); // Chrome: speak() subito dopo cancel() a volte viene ignorato
+  }
+  function speak(text, rate, male) {
+    speakItems(chunks(text).map(function (c) { return { text: c, rate: rate, male: male }; }));
+  }
+  function speaking() { return !!synth && (synth.speaking || speechQueue.length > 0); }
   function speakerLine(line) {
     var m = line.match(/^([A-ZÀ-Ú][A-Za-zÀ-ú' ]{1,26}):\s+(.*)$/);
     return m && CHAR_COLORS[m[1]] ? m : null;
@@ -253,6 +331,7 @@
     var cur = currentUnit();
     var html = renderTopbar() + '<div class="page"><main class="main-col">';
     html += '<section class="hero">' + SKYLINE +
+      '<div class="hero-art" aria-hidden="true"><img src="assets/img/u02-cover.jpg" alt=""><img src="assets/img/u08-cover.jpg" alt=""><img src="assets/img/u10-cover.jpg" alt=""></div>' +
       '<div class="hero-kicker">Corso di italiano per stranieri · Livello B1</div>' +
       '<h1>Ciao, <span>amore!</span> 3</h1>' +
       '<p>Dieci unità, dieci storie: Venezia, Firenze, gli Etruschi, i romanzi di Roberto Fader e un po’ di gelosia. Completa le lezioni e supera la prova finale per aprire l’unità successiva.</p>' +
@@ -261,7 +340,7 @@
     UNITS.forEach(function (unit) {
       var unlocked = unitUnlocked(unit.n);
       html += '<section class="unit' + (unlocked ? "" : " locked") + '" id="unit-' + unit.n + '" data-unit="' + unit.n + '">';
-      html += '<div class="unit-banner">' + UNIT_PATTERN +
+      html += '<div class="unit-banner"><div class="unit-cover" style="background-image:url(' + unitImage(unit, "cover") + ')"></div>' + UNIT_PATTERN +
         '<div class="unit-medal">' + ROMAN[unit.n] + '</div>' +
         '<div class="unit-kicker">Unità ' + unit.n + (unitPassed(unit.n) ? " · completata" : "") + '</div>' +
         '<div class="unit-title">' + esc(unit.title) + '</div>' +
@@ -269,7 +348,10 @@
         '<div class="unit-actions"><button class="chip-btn" data-notes="' + unit.n + '">' + I.notes + ' Note di grammatica</button></div>' +
         (unlocked ? "" : '<div class="unit-lockmsg">' + I.lock + ' Supera la prova finale dell’Unità ' + (unit.n - 1) + ' per sbloccarla</div>') +
         '</div>';
-      html += '<div class="path">';
+      html += '<div class="path">' +
+        '<figure class="polaroid p1"><img src="' + unitImage(unit, "a") + '" alt="" loading="lazy" decoding="async"></figure>' +
+        '<figure class="polaroid p2"><img src="' + unitImage(unit, "c") + '" alt="" loading="lazy" decoding="async"></figure>' +
+        '<figure class="polaroid p3"><img src="' + unitImage(unit, "e") + '" alt="" loading="lazy" decoding="async"></figure>';
       var offsets = [0, 52, 78, 52, 0, -52, -78, -52];
       var foundCurrent = false;
       unit.lessons.forEach(function (les, i) {
@@ -367,12 +449,20 @@
     var m = openModal(null, "Impostazioni",
       '<div class="notes">' +
       '<h3>Audio</h3><p><label><input type="checkbox" id="opt-sound"' + (state.sound ? " checked" : "") + '> Effetti sonori</label></p>' +
-      '<p class="muted">La pronuncia italiana usa la sintesi vocale del tuo browser' + (canSpeak() ? "" : " (non disponibile su questo dispositivo)") + '.</p>' +
+      (canSpeak() && voices.all.length ? '<p><label>Voce italiana<br><select id="opt-voice" class="voice-select">' +
+        voices.all.map(function (v) { return '<option value="' + esc(v.name) + '"' + (voices.female === v || state.voice === v.name ? " selected" : "") + '>' + esc(v.name.replace(/^Microsoft |^Google /, "")) + (v.localService ? "" : " · online") + '</option>'; }).join("") +
+        '</select></label> <button class="speak-btn" id="opt-voice-try" type="button" style="margin:8px 0 0">' + I.speaker + 'Prova</button></p>' : "") +
+      '<p class="muted">La pronuncia usa le voci italiane del browser' + (canSpeak() ? (voices.all.length ? ". In Chrome la più naturale è «Google italiano»." : ": installa una voce italiana nel sistema per sentire la pronuncia.") : " (non disponibile su questo dispositivo).") + '</p>' +
       '<h3>Progressi</h3><p>XP totali: <b>' + state.xp + '</b> · Unità completate: <b>' + UNITS.filter(function (u) { return unitPassed(u.n); }).length + '</b></p>' +
       (state.teacher ? '<p class="warn">Modalità docente attiva: tutte le unità sono aperte. <button class="link-btn" id="opt-teacher-off">Disattiva</button></p>' : "") +
       '<p><button class="btn red" id="opt-reset">Azzera i progressi</button></p>' +
       '</div>');
     $("#opt-sound", m.el).addEventListener("change", function (e) { state.sound = e.target.checked; saveState(); });
+    var vsel = $("#opt-voice", m.el);
+    if (vsel) {
+      vsel.addEventListener("change", function () { state.voice = vsel.value; saveState(); pickVoice(); });
+      $("#opt-voice-try", m.el).addEventListener("click", function () { speak("Ciao, amore! Benvenuti al corso di italiano. Come state oggi?"); });
+    }
     var off = $("#opt-teacher-off", m.el);
     if (off) off.addEventListener("click", function () { state.teacher = false; saveState(); m.close(); route(); });
     $("#opt-reset", m.el).addEventListener("click", function () {
@@ -387,7 +477,12 @@
      ========================================================= */
   var S = null; // sessione corrente
   var pendingUnlock = null;
-  function stopSpeech() { if (synth) synth.cancel(); }
+  function stopSpeech() {
+    if (!synth) return;
+    speechToken++; speechQueue = []; speechDone = null; stopKeepAlive();
+    synth.cancel(); markSpeaking(null);
+    $all(".is-playing").forEach(function (b) { b.classList.remove("is-playing"); });
+  }
 
   function startLesson(unit, idx) {
     var les = unit.lessons[idx];
@@ -551,7 +646,9 @@
     if (ok && S.mode === "test") { title = "Unità " + unit.n + " superata!"; sub = unlockedNext ? "Si apre l’Unità " + unlockedNext.n + ": «" + unlockedNext.title + "»." : (getUnit(unit.n + 1) ? "Hai già completato questa unità: ottimo ripasso!" : "Hai completato tutto il corso B1. Complimenti!"); }
     else if (ok) { title = "Lezione completata!"; sub = S.title; }
     else { title = "Peccato…"; sub = S.mode === "test" ? "Hai esaurito i cuori. Ripassa le lezioni e riprova la prova finale." : "Hai esaurito i cuori. Riprova: ogni errore insegna qualcosa!"; }
+    var rpic = lessonImage(unit, S.idx);
     body.innerHTML = '<div class="result">' +
+      (ok ? '<figure class="result-pic"><img src="' + rpic + '" alt=""></figure>' : "") +
       '<div class="medal' + (ok ? "" : " sad") + '">' + (ok ? (S.mode === "test" ? I.crown : I.trophy) : I.sad) + '</div>' +
       '<h1>' + esc(title) + '</h1><div class="muted">' + esc(sub) + '</div>' +
       '<div class="result-stats">' +
@@ -611,13 +708,33 @@
     if (hint) out += ' <span class="hint">' + esc(hint) + '</span>';
     return out;
   }
-  function speakBtn(text, label) {
+  function speakBtn(text, label, dialog) {
     if (!canSpeak()) return "";
-    return '<button class="speak-btn" data-say="' + esc(text) + '">' + I.speaker + (label || "Ascolta") + '</button>';
+    return '<button class="speak-btn" data-say="' + esc(text) + '"' + (dialog ? ' data-dialog="1"' : "") + '>' + I.speaker + '<span class="lbl-play">' + (label || "Ascolta") + '</span><span class="lbl-stop">Ferma</span><span class="eq"><i></i><i></i><i></i></span></button>';
   }
   function bindSpeak(root) {
     $all("[data-say]", root).forEach(function (b) {
-      b.addEventListener("click", function () { speak(b.getAttribute("data-say")); });
+      var slow = false;
+      b.addEventListener("click", function () {
+        if (b.classList.contains("is-playing")) { stopSpeech(); return; }
+        var dlg = b.getAttribute("data-dialog") && $all("[data-line]", root);
+        var items;
+        if (dlg && dlg.length) {
+          items = dlg.map(function (el) {
+            return chunks(el.getAttribute("data-line")).map(function (c) {
+              return { text: c, el: el, male: el.getAttribute("data-male") === "1", pause: 320 };
+            });
+          }).reduce(function (a, x) { return a.concat(x); }, []);
+        } else {
+          // al secondo ascolto la frase va più lenta, come su Duolingo
+          var rate = b.classList.contains("speak-big") && slow ? 0.72 : 0.94;
+          slow = !slow;
+          items = chunks(b.getAttribute("data-say")).map(function (c) { return { text: c, rate: rate }; });
+        }
+        stopSpeech();
+        b.classList.add("is-playing");
+        speakItems(items, function () { b.classList.remove("is-playing"); });
+      });
     });
   }
   function optionKeys(root, handler) {
@@ -653,16 +770,20 @@
           var who = m[1];
           if (speakers.indexOf(who) < 0) speakers.push(who);
           var right = speakers.indexOf(who) % 2 === 1;
-          html += '<div class="bubble' + (right ? " right" : "") + '"><div class="who" style="background:' + charColor(who) + '">' + esc(who.charAt(0)) + '</div>' +
+          html += '<div class="bubble' + (right ? " right" : "") + '" data-line="' + esc(m[2]) + '" data-male="' + (MALE_CHARS.test(who) ? 1 : 0) + '"><div class="who" style="background:' + charColor(who) + '">' + esc(who.charAt(0)) + '</div>' +
             '<div class="say"><b style="color:' + charColor(who) + '">' + esc(who) + '</b>' + esc(m[2]) + '</div></div>';
         } else {
-          html += '<p>' + esc(line) + '</p>';
+          html += '<p data-line="' + esc(line) + '" data-male="0">' + esc(line) + '</p>';
         }
       });
+      var pic = lessonImage(S.unit, S.idx);
       body.innerHTML = kicker(ex, "Leggi") +
-        '<article class="reading"><h2>' + esc(ex.title) + '</h2>' +
+        '<article class="reading">' +
+        (pic && !S.picShown ? '<figure class="reading-pic"><img src="' + pic + '" alt="" decoding="async"></figure>' : "") +
+        '<h2>' + esc(ex.title) + '</h2>' +
         (ex.sub ? '<div class="reading-sub">' + esc(ex.sub) + '</div>' : "") +
-        speakBtn(stripSpeakers(ex.text), "Ascolta il testo") + html + '</article>';
+        speakBtn(stripSpeakers(ex.text), "Ascolta il testo", true) + html + '</article>';
+      S.picShown = true;
       bindSpeak(body);
       return { ready: function () { return true; }, check: function () { return { ok: true }; } };
     },
@@ -860,7 +981,7 @@
       }
       paint();
       bindSpeak(body);
-      if (listen && canSpeak()) setTimeout(function () { speak(ex.a); }, 350);
+      if (listen && canSpeak()) setTimeout(function () { var bb = $(".speak-big", body); if (bb && document.body.contains(bb)) bb.click(); }, 350);
       return {
         ready: function () { return chosen.length > 0; },
         check: function () {

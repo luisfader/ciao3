@@ -8,6 +8,8 @@ Sitio de ejercicios interactivos, al estilo Duolingo, basado en el libro **«Cia
 - 5 corazones por lección (los errores vuelven al final), 3 corazones en la prueba final, XP, racha diaria y objetivo del día.
 - «Note di grammatica» de cada unidad, siempre consultables desde el mapa.
 - El progreso se guarda en el navegador del estudiante (`localStorage`).
+- **Ilustraciones del libro** (`assets/img/uNN-*.jpg`): la portada de cada unidad en su banner, fotos tipo polaroid junto al camino, una imagen al empezar cada lección y en la pantalla final. Nombres: `cover`, `a`–`e` (una por lección) y `test` (prueba final). Para cambiar una imagen basta con reemplazar el archivo.
+- **Audio**: usa la mejor voz italiana del navegador (en Chrome, «Google italiano»), lee frase por frase para que Chrome no corte los textos largos, alterna voz masculina y femenina en los diálogos y resalta la línea que se está leyendo. En las frases de escucha, el segundo clic repite más lento. La voz se puede elegir en ⚙️ Impostazioni.
 
 ## Publicar con GitHub Pages
 
